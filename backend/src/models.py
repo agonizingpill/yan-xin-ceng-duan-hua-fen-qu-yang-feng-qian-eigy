@@ -107,3 +107,5 @@ class ColumnRevision(Base):
     state:Mapped[str]=mapped_column(String(20),default='draft')
     snapshot:Mapped[dict]=mapped_column(JSON,default=dict)
     frozen_by:Mapped[str]=mapped_column(String(120),default='')
+    # 冻结前层段拟合复算核验：pending/passed/hold；hold 时 hold_reasons 给出暂缓原因
+    verification:Mapped[dict]=mapped_column(JSON,default=lambda:{'status':'pending','hold_reasons':[]})

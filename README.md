@@ -22,7 +22,9 @@ docker compose up -d --build --wait
 | 层段候选与人工接触面 | Interpretation queued→ready/failed→confirmed；人工层段从孔口连续到终孔、每层附依据；一孔只能一份已确认解释 |
 | 取样配额与区间冲突 | SampleInterval 必须落在同一已确认层，不穿缺段；破坏性切样不可重叠且合计不超孔配额；planned 可改或取消，封签后不可改 |
 | 样袋封签及交接 | planned→sealed→transferred；破签转 broken，只能带原因重封；Seal.previous_id 保存旧链，Custody 只接收当前完整封签且一次一回执 |
-| 柱状图版本冻结 | draft→frozen；检查进尺、每米中心测点或明示缺段、缺段说明、层面、所有有效样品交接；冻结保存完整快照并关闭整孔写入 |
+| 柱状图版本冻结 | draft→frozen；冻结前先做层段拟合复算核验，再检查进尺、每米中心测点或明示缺段、缺段说明、层面、所有有效样品交接；冻结保存完整快照并关闭整孔写入 |
+
+冻结前的复算核验用原解释 evidence 记录的同一批测点（train/holdout ID 与源数据 SHA256 为凭）重跑 `fit_layers`：层型（成分）编号互换按同一划分处理，不算差异；测点集合、测点归类或候选接触面变化，或旧纸本解释缺复算依据时，柱状图留在草稿并把暂缓原因写在版本记录上。草稿修订或任一源记录变化会改变依据指纹，冻结时强制重新复算，旧核验不能放行已变化的草稿。冻结失败始终在同一草稿上留档重试，不重复出版本；比对依据（双侧 SHA256、编号置换、接触面与 BIC 对照）和暂缓原因可在柱状图页面查看。
 
 取样与配额写入、封签、交接、冻结统一先锁父钻孔，数据库唯一约束作为补充。并发验收主动持有父锁，让两次请求确实竞争，避免仅顺序调用。
 
@@ -34,8 +36,8 @@ docker compose up -d --build --wait
 4. 在第一层申请 2–3m 切样；8.5–9.5m 与历史 8–9m 切样冲突会被拒绝。改区间后恢复。
 5. 旧封签 CX031-001 已破签，不能移交；填原因重封并保持 previous_id，再登记实验室接收人、目的地、完整性。
 6. 新样封签后不再允许改区间。主管报告破签后，重新封签、重新交接，历史回执不被覆盖。
-7. 建柱状图草稿；未说明缺芯或未交接样品会阻止冻结，补说明/补交接后可重试同一草稿。
-8. 冻结版本查看孔深、人工岩性、缺芯带与样品标记；快照保留测点、模型证据、全部封签及交接链。
+7. 建柱状图草稿；建稿即按原解释同批测点复算层段拟合，复算通过且缺芯已说明、样品已交接后主管才能冻结；任一暂缓项会把原因写在草稿上，补正后在同一草稿重试，不新建版本。
+8. 冻结版本查看孔深、人工岩性、缺芯带与样品标记；快照保留测点、模型证据、复算核验结论、全部封签及交接链。
 
 ## 真实 Python 算法
 
@@ -45,7 +47,9 @@ worker 经 Redis 队列执行 `layer_model.py`。密度、磁化率、声速先�
 
 ## 结构和开发
 
-`backend/src/models.py` 定义关系表；`schemas.py` 提供严格校验与非有限值拒绝；五个领域 service 承担约束；`routes.py` 管接口与角色；`layer_model.py` / `worker.py` 管计算；`common.py` 管父锁与审计。`middlewares.py` 提供请求追踪及异常恢复两层中间件。`frontend/src/pages/` 六页分别实现领域任务，`components/logbook.js` 共用孔头、深度带、徽标等组件，`constants.js` 集中角色和状态，`utils/` 管请求及转义。原生 HTML/CSS/ES modules，无前端框架。
+`backend/src/models.py` 定义关系表；`schemas.py` 提供严格校验与非有限值拒绝；五个领域 service 承担约束；`routes.py` 管接口与角色；`layer_model.py` / `worker.py` 管计算；`recompute_logic.py` 是无第三方依赖的复算比对规则，`recompute_service.py` 负责取数与依据指纹；`common.py` 管父锁与审计。`middlewares.py` 提供请求追踪及异常恢复两层中间件。`frontend/src/pages/` 六页分别实现领域任务，`components/logbook.js` 共用孔头、深度带、徽标等组件，`constants.js` 集中角色和状态，`utils/` 管请求及转义。原生 HTML/CSS/ES modules，无前端框架。
+
+复算核验的纯规则与冻结状态机测试在 `backend/tests/`（标准库 `python -m unittest discover -s backend/tests`，无需第三方包）；起栈后的 HTTP 端到端验收脚本为 `backend/scripts/accept_recompute_freeze.py`。
 
 ```bash
 docker compose exec -T backend python /app/scripts/seed_demo.py

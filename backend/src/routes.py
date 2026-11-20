@@ -93,7 +93,21 @@ def handover(p:CustodyInput,u=Depends(current)):
 def new_revision(p:RevisionInput,u=Depends(current)):
     permissions(u)
     with Session.begin()as s:return revision.create(s,p,u)
+@router.patch('/revisions/{id}')
+def edit_revision(id:int,p:RevisionInput,u=Depends(current)):
+    permissions(u)
+    with Session.begin()as s:return revision.revise(s,id,p,u)
+@router.post('/revisions/{id}/verify')
+def verify_revision(id:int,u=Depends(current)):
+    permissions(u)
+    with Session.begin()as s:return revision.verify(s,id,u)
 @router.post('/revisions/{id}/freeze')
 def freeze(id:int,u=Depends(current)):
     permissions(u,True)
-    with Session.begin()as s:return revision.freeze(s,id,u)
+    with Session.begin()as s:
+        try:
+            return revision.freeze(s,id,u)
+        except revision.FreezeHold as e:
+            # 暂缓结论已回滚到保存点之外并写在草稿上：先提交留档，再返回 409
+            s.commit()
+            raise HTTPException(e.status_code,e.detail)
